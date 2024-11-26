@@ -24,7 +24,7 @@ def prepare_title(title):
 
 def prepare_value_currency(key, data):
     return [
-        f"*{to_persian_and_format(int(data.get(f"{key}1", 0)))}* --- {to_persian_and_format(int(data.get(f"{key}2", 0)))}",
+        "*" + to_persian_and_format(int(data.get(f"{key}1", 0))) + "*---" + to_persian_and_format(int(data.get(f"{key}2", 0))),
     ]
     # return [
     #     to_persian_and_format(int(json_data.get(f"{key}1", 0))),
@@ -35,7 +35,7 @@ def prepare_value_currency(key, data):
 
 def prepare_value_coin(key, data):
     return [
-        f"*{to_persian_and_format(int(data.get(f"{key}", 0)))}* --- {to_persian_and_format(int(data.get(f"{key}2", 0)))}",
+        "*" + to_persian_and_format(int(data.get(f"{key}", 0))) + "*---" + to_persian_and_format(int(data.get(f"{key}2", 0))),
     ]
     # return [
     #     to_persian_and_format(int(json_data.get(f"{key}", 0))),
@@ -127,7 +127,7 @@ def callback_btn_coin(call):
     rows = [
         [
             prepare_title("طلا"),
-            f"*{to_persian_and_format(int(json_data.get("gol18", 0)))}*",
+            "*" + to_persian_and_format(int(json_data.get("gol18", 0))) + "*",
         ],
         [prepare_title("امامی"), *prepare_value_coin("emami1", data=json_data)],
         [prepare_title("بهار"), *prepare_value_coin("azadi1", data=json_data)],
