@@ -73,7 +73,7 @@ class Coin:
             (
                 "*" + to_persian_and_format(int(self.sell)) + 
                 "* --- " + to_persian_and_format(int(self.buy)) + 
-                " --- " + to_persian_and_format(self.bubble(ounce, usd))
+                " --- *" + to_persian_and_format(self.bubble(ounce, usd)) + "*"
             )
         ])
         
