@@ -7,41 +7,15 @@ from telebot.types import (
     InlineKeyboardButton,
 )
 
-from crawler import get_mazane
-from utils import get_jalali_datetime, to_persian_and_format
+from utils import get_jalali_datetime, Coin, Currency
 from database import get_db
-from models import User
+from models import User, Record
 from sqlalchemy.orm import Session
 
 
 load_dotenv()
 bot = TeleBot(os.getenv("TOKEN"))
-
-
-def prepare_title(title):
-    return f"*{title}*".ljust(20)
-
-
-def prepare_value_currency(key, data):
-    return [
-        "*" + to_persian_and_format(int(data.get(f"{key}1", 0))) + "*---" + to_persian_and_format(int(data.get(f"{key}2", 0))),
-    ]
-    # return [
-    #     to_persian_and_format(int(json_data.get(f"{key}1", 0))),
-    #     "\t",
-    #     to_persian_and_format(int(json_data.get(f"{key}2", 0))),
-    # ]
-
-
-def prepare_value_coin(key, data):
-    return [
-        "*" + to_persian_and_format(int(data.get(f"{key}", 0))) + "*---" + to_persian_and_format(int(data.get(f"{key}2", 0))),
-    ]
-    # return [
-    #     to_persian_and_format(int(json_data.get(f"{key}", 0))),
-    #     "\t",
-    #     to_persian_and_format(int(json_data.get(f"{key}2", 0))),
-    # ]
+CHANNEL_SIGN = f"{os.getenv('CHANNEL_ID')} | {os.getenv('CHANNEL_TITLE')}"
 
 
 def send_waiting_message(chat_id):
@@ -52,17 +26,21 @@ def send_waiting_message(chat_id):
     )
 
 
-def send_cost(chat_id, rows):
-    # Define your table data
-    header = "*قیمت‌ها به تومان است* " + "*(فروش -- خرید)*"
-    # Build a formatted string
-    formatted_table = "\n\n".join([get_jalali_datetime(), header, ""])
-    # formatted_table += "-" * 70 + "\n"  # A divider line
-    for row in rows:
-        formatted_table += "      ".join(row) + "\n"
+def send_price_list_message(chat_id, rows_header, rows):
+    table_headers = [
+        f"*{get_jalali_datetime()}*",
+        rows_header
+        # "*قیمت‌ها به تومان است «فروش --- خرید»*"
+    ]
 
-    # Send the formatted table as a message
-    # bot.send_message(chat_id, f"\n{formatted_table}\n", parse_mode="Markdown")
+    table_rows = [row for row in rows]
+
+    table = (
+        "\n\n".join(table_headers) + 
+        "\n\n" + 
+        "\n".join(table_rows)+
+        "\n\n" + CHANNEL_SIGN
+    )
 
     db: Session = next(get_db())
     user = db.query(User).filter(User.chat_id == chat_id).first()
@@ -72,13 +50,13 @@ def send_cost(chat_id, rows):
 
     bot.send_message(
         chat_id=chat_id,
-        text=f"\n{formatted_table}\n",
+        text=f"\n{table}\n",
         parse_mode="Markdown",
-        reply_markup=create_inline_button(),
+        reply_markup=create_inline_buttons(),
     )
 
 
-def create_inline_button():
+def create_inline_buttons():
     inline_keyboard = InlineKeyboardMarkup(row_width=2)
     inline_keyboard.add(
         InlineKeyboardButton(text="🌟 نرخ طلا و سکه", callback_data="btn_coin"),
@@ -109,13 +87,14 @@ def start(message):
             + (f"، @{user.username} عزیز" if user.username else ""),
             "برای نمایش نرخ آنلاین طلا، سکه و ارز 🌐💵 ",
             "از طریق این 👇 داشبورد ادامه بدید\n",
+            CHANNEL_SIGN,
         ]
     )
-
+    
     bot.send_message(
         chat_id=message.chat.id,
         text=text,
-        reply_markup=create_inline_button(),
+        reply_markup=create_inline_buttons(),
         parse_mode="Markdown",
     )
 
@@ -123,107 +102,64 @@ def start(message):
 @bot.callback_query_handler(func=lambda call: call.data == "btn_coin")
 def callback_btn_coin(call):
     send_waiting_message(call.message.chat.id)
-    json_data = get_mazane()
+    db_record = Record.get_record()
+    
+    gold = db_record.gold()
+    emami = db_record.coin_emami()
+    bahar = db_record.coin_bahar()
+    nim = db_record.coin_nim()
+    rob = db_record.coin_rob()
+    gerami = db_record.coin_gerami()
+    usd = db_record.currency_usd()
+    ounce = gold.ounce
+    
+    
     rows = [
-        [
-            prepare_title("طلا"),
-            "*" + to_persian_and_format(int(json_data.get("gol18", 0))) + "*",
-        ],
-        [prepare_title("امامی"), *prepare_value_coin("emami1", data=json_data)],
-        [prepare_title("بهار"), *prepare_value_coin("azadi1", data=json_data)],
-        [prepare_title("نیم"), *prepare_value_coin("azadi1_2", data=json_data)],
-        [prepare_title("ربع"), *prepare_value_coin("azadi1_4", data=json_data)],
-        [prepare_title("گرمی"), *prepare_value_coin("azadi1g", data=json_data)],
+        str(gold),
+        emami.show(ounce=ounce, usd=usd.sell),
+        bahar.show(ounce=ounce, usd=usd.sell),
+        nim.show(ounce=ounce, usd=usd.sell),
+        rob.show(ounce=ounce, usd=usd.sell),
+        gerami.show(ounce=ounce, usd=usd.sell),
     ]
-    send_cost(call.message.chat.id, rows)
+    send_price_list_message(call.message.chat.id, Coin.message_header(), rows)
 
 
 @bot.callback_query_handler(func=lambda call: call.data == "btn_currency")
 def callback_btn_currency(call):
     send_waiting_message(call.message.chat.id)
-    json_data = get_mazane()
+    db_record = Record.get_record()
     rows = [
-        [prepare_title("دلار 🇺🇸"), *prepare_value_currency("usd", data=json_data)],
-        [prepare_title("یورو 🇪🇺"), *prepare_value_currency("eur", data=json_data)],
-        [
-            prepare_title("درهم امارات 🇦🇪"),
-            *prepare_value_currency("aed", data=json_data),
-        ],
-        [
-            prepare_title("پوند انگلیس 🏴󠁧󠁢󠁥󠁮󠁧󠁿"),
-            *prepare_value_currency("gbp", data=json_data),
-        ],
-        [prepare_title("لیر ترکیه 🇹🇷"), *prepare_value_currency("try", data=json_data)],
-        [
-            prepare_title("فرانک سوئیس 🇨🇭"),
-            *prepare_value_currency("chf", data=json_data),
-        ],
-        [prepare_title("یوان چین 🇨🇳"), *prepare_value_currency("cny", data=json_data)],
-        [prepare_title("ین ژاپن 🇯🇵"), *prepare_value_currency("jpy", data=json_data)],
-        [
-            prepare_title("دلار کانادا 🇨🇦"),
-            *prepare_value_currency("cad", data=json_data),
-        ],
-        [
-            prepare_title("دلار استرالیا 🇦🇺"),
-            *prepare_value_currency("aud", data=json_data),
-        ],
-        [
-            prepare_title("دلار سنگاپور 🇸🇬"),
-            *prepare_value_currency("sgd", data=json_data),
-        ],
-        [prepare_title("روپیه هند 🇮🇳"), *prepare_value_currency("inr", data=json_data)],
-        [
-            prepare_title("دینار عراق 🇮🇶"),
-            *prepare_value_currency("iqd", data=json_data),
-        ],
-        [prepare_title("افغانی 🇦🇫"), *prepare_value_currency("afn", data=json_data)],
-        [
-            prepare_title("کرون دانمارک 🇩🇰"),
-            *prepare_value_currency("dkk", data=json_data),
-        ],
-        [prepare_title("کرون سوئد 🇸🇪"), *prepare_value_currency("sek", data=json_data)],
-        [prepare_title("کرون نروژ 🇳🇴"), *prepare_value_currency("nok", data=json_data)],
-        [
-            prepare_title("ریال عربستان 🇸🇦"),
-            *prepare_value_currency("sar", data=json_data),
-        ],
-        [prepare_title("ریال قطر 🇶🇦"), *prepare_value_currency("qar", data=json_data)],
-        [prepare_title("ریال عمان 🇴🇲"), *prepare_value_currency("omr", data=json_data)],
-        [
-            prepare_title("دینار کویت 🇰🇼"),
-            *prepare_value_currency("kwd", data=json_data),
-        ],
-        [
-            prepare_title("دینار بحرین 🇧🇭"),
-            *prepare_value_currency("bhd", data=json_data),
-        ],
-        [
-            prepare_title("رینگیت مالزی 🇲🇾"),
-            *prepare_value_currency("myr", data=json_data),
-        ],
-        [
-            prepare_title("بات تایلند 🇹🇭"),
-            *prepare_value_currency("thb", data=json_data),
-        ],
-        [
-            prepare_title("دلار هنگ‌کنگ 🇭🇰"),
-            *prepare_value_currency("hkd", data=json_data),
-        ],
-        [
-            prepare_title("روبل روسیه 🇷🇺"),
-            *prepare_value_currency("rub", data=json_data),
-        ],
-        [
-            prepare_title("منات آذربایجان 🇦🇿"),
-            *prepare_value_currency("azn", data=json_data),
-        ],
-        [
-            prepare_title("درام ارمنستان 🇦🇲"),
-            *prepare_value_currency("amd", data=json_data),
-        ],
+        str(db_record.currency_usd()),
+        str(db_record.currency_eur()),
+        str(db_record.currency_aed()),
+        str(db_record.currency_gbp()),
+        str(db_record.currency_try()),
+        str(db_record.currency_chf()),
+        str(db_record.currency_cny()),
+        str(db_record.currency_jpy()),
+        str(db_record.currency_cad()),
+        str(db_record.currency_aud()),
+        str(db_record.currency_sgd()),
+        str(db_record.currency_inr()),
+        str(db_record.currency_iqd()),
+        str(db_record.currency_afn()),
+        str(db_record.currency_dkk()),
+        str(db_record.currency_sek()),
+        str(db_record.currency_nok()),
+        str(db_record.currency_sar()),
+        str(db_record.currency_qar()),
+        str(db_record.currency_omr()),
+        str(db_record.currency_kwd()),
+        str(db_record.currency_bhd()),
+        str(db_record.currency_myr()),
+        str(db_record.currency_thb()),
+        str(db_record.currency_hkd()),
+        str(db_record.currency_rub()),
+        str(db_record.currency_azn()),
+        str(db_record.currency_amd()),
     ]
-    send_cost(call.message.chat.id, rows)
+    send_price_list_message(call.message.chat.id, Currency.message_header(), rows)
 
 
 if __name__ == "__main__":

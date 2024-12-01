@@ -1,12 +1,7 @@
 import requests
 from bs4 import BeautifulSoup
 import re
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy import create_engine, desc
-from datetime import datetime, timedelta
-from database import get_db
-from models import User, Record
-from sqlalchemy.orm import Session
+
 
 
 def get_param():
@@ -69,7 +64,6 @@ def get_data(param):
     return response.json()
 
 
-
 def crawl_data():
     param = get_param()
 
@@ -78,32 +72,33 @@ def crawl_data():
     return get_data(param=param)
 
 
-def get_mazane():
-    # Calculate the time threshold
-    five_minutes_ago = datetime.utcnow() - timedelta(minutes=5)
+# def get_mazane():
+#     # Calculate the time threshold
+#     # five_minutes_ago = datetime.utcnow() - timedelta(minutes=5)
+#     five_minutes_ago = datetime.utcnow() - timedelta(minutes=50)
 
-    db: Session = next(get_db())
+#     db: Session = next(get_db())
 
-    # Query to get the last record within the time threshold
-    last_valid_record = (
-        db.query(Record)
-        .filter(Record.created_at >= five_minutes_ago)
-        .order_by(desc(Record.created_at))
-        .first()
-    )
+#     # Query to get the last record within the time threshold
+#     last_valid_record = (
+#         db.query(Record)
+#         .filter(Record.created_at >= five_minutes_ago)
+#         .order_by(desc(Record.created_at))
+#         .first()
+#     )
 
-    if last_valid_record is None:
-        value = crawl_data()
-        if value != False:
-            last_valid_record = Record(value=value)
-            db.add(last_valid_record)
-            db.commit()
-        else:
-            last_valid_record = (
-                db.query(Record).order_by(desc(Record.created_at)).first()
-            )
+#     if last_valid_record is None:
+#         value = crawl_data()
+#         if value != False:
+#             last_valid_record = Record(value=value)
+#             db.add(last_valid_record)
+#             db.commit()
+#         else:
+#             last_valid_record = (
+#                 db.query(Record).order_by(desc(Record.created_at)).first()
+#             )
 
-    return last_valid_record.value
+#     return last_valid_record
 
     # f = open("test_data.json", "r")
     # return f.read()
