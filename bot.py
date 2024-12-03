@@ -26,30 +26,32 @@ def send_waiting_message(chat_id):
     )
 
 
-def send_price_list_message(chat_id, rows_header, rows):
+def send_price_list_message(message, rows_header, rows):
     table_headers = [
         f"*{get_jalali_datetime()}*",
-        rows_header
+        rows_header,
         # "*قیمت‌ها به تومان است «فروش --- خرید»*"
     ]
 
     table_rows = [row for row in rows]
 
     table = (
-        "\n\n".join(table_headers) + 
-        "\n\n" + 
-        "\n".join(table_rows)+
-        "\n\n" + CHANNEL_SIGN
+        "\n\n".join(table_headers)
+        + "\n\n"
+        + "\n".join(table_rows)
+        + "\n\n"
+        + CHANNEL_SIGN
     )
 
+    user = User.find_or_create(message=message)
     db: Session = next(get_db())
-    user = db.query(User).filter(User.chat_id == chat_id).first()
-    user.api_call_count += 1
-    user.step = 1
+    db.query(User).filter_by(chat_id=message.chat.id).update(
+        {User.api_call_count: User.api_call_count + 1}
+    )
     db.commit()
 
     bot.send_message(
-        chat_id=chat_id,
+        chat_id=message.chat.id,
         text=f"\n{table}\n",
         parse_mode="Markdown",
         reply_markup=create_inline_buttons(),
@@ -67,20 +69,8 @@ def create_inline_buttons():
 
 @bot.message_handler(commands=["start"])
 def start(message):
-    user_chat_id = message.chat.id
-    db: Session = next(get_db())
-    user = db.query(User).filter(User.chat_id == user_chat_id).first()
-    if user is None:
-        user = User(
-            chat_id=user_chat_id,
-            username=message.chat.username,
-            first_name=message.from_user.first_name,
-            last_name=message.from_user.last_name,
-        )
-        db.add(user)
-        db.commit()
 
-    username = user
+    user = User.find_or_create(message=message)
     text = "\n\n".join(
         [
             f"به *ایران مزنه* خوش اومدی"
@@ -90,7 +80,7 @@ def start(message):
             CHANNEL_SIGN,
         ]
     )
-    
+
     bot.send_message(
         chat_id=message.chat.id,
         text=text,
@@ -103,26 +93,23 @@ def start(message):
 def callback_btn_coin(call):
     send_waiting_message(call.message.chat.id)
     db_record = Record.get_record()
-    
+
     gold = db_record.gold()
     emami = db_record.coin_emami()
     bahar = db_record.coin_bahar()
     nim = db_record.coin_nim()
     rob = db_record.coin_rob()
     gerami = db_record.coin_gerami()
-    usd = db_record.currency_usd()
-    ounce = gold.ounce
-    
-    
+
     rows = [
         str(gold),
-        emami.show(ounce=ounce, usd=usd.sell),
-        bahar.show(ounce=ounce, usd=usd.sell),
-        nim.show(ounce=ounce, usd=usd.sell),
-        rob.show(ounce=ounce, usd=usd.sell),
-        gerami.show(ounce=ounce, usd=usd.sell),
+        str(emami),
+        str(bahar),
+        str(nim),
+        str(rob),
+        str(gerami),
     ]
-    send_price_list_message(call.message.chat.id, Coin.message_header(), rows)
+    send_price_list_message(call.message, Coin.message_header(), rows)
 
 
 @bot.callback_query_handler(func=lambda call: call.data == "btn_currency")
@@ -159,7 +146,7 @@ def callback_btn_currency(call):
         str(db_record.currency_azn()),
         str(db_record.currency_amd()),
     ]
-    send_price_list_message(call.message.chat.id, Currency.message_header(), rows)
+    send_price_list_message(call.message, Currency.message_header(), rows)
 
 
 if __name__ == "__main__":

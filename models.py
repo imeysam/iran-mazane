@@ -12,8 +12,9 @@ from sqlalchemy import (
     Enum,
     JSON,
     DateTime,
-    create_engine, 
-    desc
+    create_engine,
+    desc,
+    event,
 )
 from sqlalchemy.orm import Mapped, relationship
 from sqlalchemy.sql import func
@@ -58,10 +59,11 @@ from utils import (
 
 from dotenv import load_dotenv
 import os
+from services import Redis
+import json
 
 load_dotenv()
 crawl_threshold_min = int(os.getenv("CRAWL_THRESHOLD_MIN", 1))
-
 
 
 class Record(Base):
@@ -71,8 +73,31 @@ class Record(Base):
     value = Column(JSON, nullable=False)  # JSON column for storing structured data
     created_at = Column(DateTime, server_default=func.now())
 
+    def serializer_redis(self):
+        return {
+            "id": self.id,
+            "value": self.value,
+            "created_at": str(self.created_at),
+        }
+
     @classmethod
-    def get_record(cls, minutes=crawl_threshold_min):
+    def crawl_and_store(cls, minutes=crawl_threshold_min):
+        value = crawl_data()
+        db: Session = next(get_db())
+        if value != False:
+            last_valid_record = cls(value=value)
+            db.add(last_valid_record)
+            db.commit()
+            db.refresh(last_valid_record)
+        else:
+            last_valid_record = db.query(cls).order_by(desc(cls.created_at)).first()
+        return last_valid_record
+
+        # f = open("test_data.json", "r")
+        # return f.read()
+
+    @classmethod
+    def fetch_or_crawl(cls, minutes=crawl_threshold_min):
         five_minutes_ago = datetime.utcnow() - timedelta(minutes=minutes)
 
         db: Session = next(get_db())
@@ -86,21 +111,19 @@ class Record(Base):
         )
 
         if last_valid_record is None:
-            value = crawl_data()
-            if value != False:
-                last_valid_record = cls(value=value)
-                db.add(last_valid_record)
-                db.commit()
-                db.refresh(last_valid_record)
-            else:
-                last_valid_record = (
-                    db.query(cls).order_by(desc(cls.created_at)).first()
-                )
+            last_valid_record = cls.crawl_and_store()
 
         return last_valid_record
-    
-        # f = open("test_data.json", "r")
-        # return f.read()
+
+    @classmethod
+    def get_record(cls):
+        redis = Redis.client()
+        if redis.exists("data"):
+            redis_data = json.loads(redis.get("data"))
+            return cls(**redis_data)
+        record = cls.fetch_or_crawl()
+        result = redis.set("data", json.dumps(record.serializer_redis()))
+        return record
 
     def gold(self):
         price = int(self.value.get("gol18"))
@@ -110,27 +133,32 @@ class Record(Base):
     def coin_emami(self):
         sell = int(self.value.get("emami1"))
         buy = int(self.value.get("emami12"))
-        return Emami(sell=sell, buy=buy)
+        bubble = int(self.value.get("emami1_bubble"))
+        return Emami(sell=sell, buy=buy, bubble=bubble)
 
     def coin_bahar(self):
         sell = int(self.value.get("azadi1"))
         buy = int(self.value.get("azadi12"))
-        return Bahar(sell=sell, buy=buy)
+        bubble = int(self.value.get("azadi1_bubble"))
+        return Bahar(sell=sell, buy=buy, bubble=bubble)
 
     def coin_nim(self):
         sell = int(self.value.get("azadi1_2"))
         buy = int(self.value.get("azadi1_22"))
-        return Nim(sell=sell, buy=buy)
+        bubble = int(self.value.get("azadi1_2_bubble"))
+        return Nim(sell=sell, buy=buy, bubble=bubble)
 
     def coin_rob(self):
         sell = int(self.value.get("azadi1_4"))
         buy = int(self.value.get("azadi1_42"))
-        return Rob(sell=sell, buy=buy)
+        bubble = int(self.value.get("azadi1_4_bubble"))
+        return Rob(sell=sell, buy=buy, bubble=bubble)
 
     def coin_gerami(self):
         sell = int(self.value.get("azadi1g"))
         buy = int(self.value.get("azadi1g2"))
-        return Gerami(sell=sell, buy=buy)
+        bubble = int(self.value.get("azadi1g_bubble"))
+        return Gerami(sell=sell, buy=buy, bubble=bubble)
 
     def currency_usd(self):
         sell = int(self.value.get("usd1"))
@@ -273,6 +301,34 @@ class Record(Base):
         return AMD(sell=sell, buy=buy)
 
 
+@event.listens_for(Record, "before_insert")
+def before_insert_calc_bubbles(mapper, connect, target):
+    def calculate(sell_price, weight, ounce, usd):
+        return sell_price - int(round((weight * 0.9 * ounce * usd) / 31.1035, -3))
+
+    print(target.value)
+    record_values = (
+        json.loads(target.value) if type(target.value) is str else target.value
+    )
+    usd1 = int(record_values.get("usd1"))
+    ounce = float(record_values.get("ounce"))
+
+    bubbles = {}
+    coins = {
+        "emami1": 8.133,
+        "azadi1": 8.133,
+        "azadi1_2": 4.066,
+        "azadi1_4": 2.033,
+        "azadi1g": 1,
+    }
+    for coin_key, coin_weight in coins.items():
+        sell_price = int(record_values.get(coin_key))
+        weight = coin_weight
+        bubbles[f"{coin_key}_bubble"] = calculate(sell_price, weight, ounce, usd1)
+
+    target.value = {**bubbles, **record_values}
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -282,3 +338,22 @@ class User(Base):
     first_name = Column(String, nullable=True)
     last_name = Column(String, nullable=True)
     api_call_count = Column(Integer, default=0)
+    
+    
+    @classmethod
+    def find_or_create(cls, message):
+        user_chat_id = message.chat.id
+        db: Session = next(get_db())
+        user = db.query(cls).filter(cls.chat_id == user_chat_id).first()
+        if user is None:
+            user = cls(
+                chat_id=user_chat_id,
+                username=message.chat.username,
+                first_name=message.from_user.first_name,
+                last_name=message.from_user.last_name,
+            )
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+        db.close()
+        return user

@@ -191,3 +191,4 @@ cython_debug/
 Makefile
 logs
 user_images
+local_test.py
