@@ -81,7 +81,7 @@ class Record(Base):
         }
 
     @classmethod
-    def crawl_and_store(cls, minutes=crawl_threshold_min):
+    def crawl_and_store(cls, minutes):
         value = crawl_data()
         db: Session = next(get_db())
         if value != False:
@@ -98,20 +98,20 @@ class Record(Base):
 
     @classmethod
     def fetch_or_crawl(cls, minutes=crawl_threshold_min):
-        five_minutes_ago = datetime.utcnow() - timedelta(minutes=minutes)
+        threshold_minutes_ago = datetime.utcnow() - timedelta(minutes=minutes)
 
         db: Session = next(get_db())
 
         # Query to get the last record within the time threshold
         last_valid_record = (
             db.query(cls)
-            .filter(cls.created_at >= five_minutes_ago)
+            .filter(cls.created_at >= threshold_minutes_ago)
             .order_by(desc(cls.created_at))
             .first()
         )
 
         if last_valid_record is None:
-            last_valid_record = cls.crawl_and_store()
+            last_valid_record = cls.crawl_and_store(minutes=minutes)
 
         return last_valid_record
 
@@ -122,7 +122,7 @@ class Record(Base):
             redis_data = json.loads(redis.get("data"))
             return cls(**redis_data)
         record = cls.fetch_or_crawl()
-        result = redis.setex("data", 180, json.dumps(record.serializer_redis()))
+        result = redis.setex("data", 60, json.dumps(record.serializer_redis()))
         return record
 
     def gold(self):
