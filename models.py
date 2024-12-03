@@ -122,7 +122,7 @@ class Record(Base):
             redis_data = json.loads(redis.get("data"))
             return cls(**redis_data)
         record = cls.fetch_or_crawl()
-        result = redis.set("data", json.dumps(record.serializer_redis()))
+        result = redis.setex("data", 180, json.dumps(record.serializer_redis()))
         return record
 
     def gold(self):
